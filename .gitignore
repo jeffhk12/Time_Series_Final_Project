@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.DS_Store
+*.xlsx
+option_chains/
+outputs/charts/
+outputs/tables/
+.ipynb_checkpoints/
+*.tmp
