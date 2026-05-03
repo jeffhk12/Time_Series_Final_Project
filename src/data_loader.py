@@ -10,7 +10,8 @@ import pandas as pd
 
 
 WORKSPACE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PRICE_XLSX = os.path.join(WORKSPACE, "WTI_COT_TimeSeries.xlsx")
+PRICE_XLSX_CLEANED = os.path.join(WORKSPACE, "WTI_COT_TimeSeries.cleaned.xlsx")
+PRICE_XLSX_RAW = os.path.join(WORKSPACE, "WTI_COT_TimeSeries.xlsx")
 OPTION_DIR = os.path.join(WORKSPACE, "option_chains")
 
 # USO had a 1-for-8 reverse split on 2020-04-29. Bloomberg PX_LAST is split-adjusted
@@ -19,7 +20,14 @@ OPTION_DIR = os.path.join(WORKSPACE, "option_chains")
 BACKTEST_START = pd.Timestamp("2020-05-04")
 
 
-def load_price_data(path: str = PRICE_XLSX) -> pd.DataFrame:
+def _default_price_workbook() -> str:
+    """Prefer the normalized workbook when present, else fall back to the raw file."""
+    return PRICE_XLSX_CLEANED if os.path.exists(PRICE_XLSX_CLEANED) else PRICE_XLSX_RAW
+
+
+def load_price_data(path: str | None = None) -> pd.DataFrame:
+    if path is None:
+        path = _default_price_workbook()
     df = pd.read_excel(path, sheet_name="Price_TimeSeries_HardCoded", header=3)
     df.columns = [
         "date",

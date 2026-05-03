@@ -1,10 +1,18 @@
+# Local virtual environment
+bin/
+include/
+lib/
+share/
+pyvenv.cfg
+
+# Python cache
 __pycache__/
 *.pyc
-*.egg-info/
-.DS_Store
-*.xlsx
+
+# Large local data inputs
 option_chains/
-outputs/charts/
-outputs/tables/
-.ipynb_checkpoints/
-*.tmp
+WTI_COT_TimeSeries.xlsx
+WTI_COT_TimeSeries.cleaned.xlsx
+
+# OS files
+.DS_Store
