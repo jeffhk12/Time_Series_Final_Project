@@ -41,6 +41,9 @@ class StrategyConfig:
     use_hedge: bool
     use_ewma_signal: bool
     use_stop_loss: bool
+    entry_threshold: float = EWMA_THRESHOLD
+    stop_loss_mult: float = STOP_LOSS_MULT
+    signal_name: str = ""
 
 
 STRATEGIES = [
@@ -69,21 +72,30 @@ class OpenTrade:
     days_held: int = 0
 
 
-def _signal_ok(cfg: StrategyConfig, iv: float, ewma_vol: float) -> bool:
+def _signal_ok(cfg: StrategyConfig, iv: float, signal_vol: float) -> bool:
     if not cfg.use_ewma_signal:
         return True
-    if not (np.isfinite(iv) and np.isfinite(ewma_vol) and ewma_vol > 0):
+    if not (np.isfinite(iv) and np.isfinite(signal_vol) and signal_vol > 0):
         return False
-    return (iv / ewma_vol) > EWMA_THRESHOLD
+    return (iv / signal_vol) > cfg.entry_threshold
 
 
 def run_backtest(
     cfg: StrategyConfig,
     price: pd.DataFrame,
     chain_by_date: dict,
-    ewma_vol: pd.Series,
+    signal_vol: pd.Series,
+    entry_veto: Optional[pd.Series] = None,
 ):
-    """Run a single-strategy daily loop. Returns (daily_df, trade_log_df)."""
+    """Run a single-strategy daily loop. Returns (daily_df, trade_log_df).
+
+    `signal_vol` is the annualized volatility forecast used for the entry filter
+    (e.g. EWMA, GARCH). Only consulted when `cfg.use_ewma_signal` is True.
+
+    `entry_veto`, if provided, is a boolean Series indexed like `price` where
+    True blocks new entries on that day (used by the Layer 3 COT filter). Open
+    trades are still managed normally — the veto only gates new entries.
+    """
     trade: Optional[OpenTrade] = None
     last_entry_date: Optional[pd.Timestamp] = None
     daily_rows = []
@@ -129,7 +141,7 @@ def run_backtest(
                     exit_reason = "near_expiry"
                 if cfg.use_stop_loss and not exit_now:
                     straddle_ask = call_row["ask"] + put_row["ask"]
-                    if straddle_ask * CONTRACT_MULTIPLIER >= STOP_LOSS_MULT * trade.premium_received:
+                    if straddle_ask * CONTRACT_MULTIPLIER >= cfg.stop_loss_mult * trade.premium_received:
                         exit_now = True
                         exit_reason = "stop_loss"
 
@@ -184,14 +196,15 @@ def run_backtest(
         # ----- Entry logic -----
         if trade is None and chain_today is not None:
             gap_ok = (last_entry_date is None) or (np.busday_count(last_entry_date.date(), date.date()) >= ENTRY_GAP_DAYS)
-            if gap_ok:
+            veto_today = bool(entry_veto.iloc[i]) if entry_veto is not None and i < len(entry_veto) else False
+            if gap_ok and not veto_today:
                 # IV check: use selected ATM IV if available
                 pick = select_atm_straddle(chain_today, spot)
                 if pick is not None:
                     call_row, put_row, strike, expiry = pick
                     iv = (call_row["iv_mid"] + put_row["iv_mid"]) / 2.0
-                    ewma_today = ewma_vol.iloc[i] if i < len(ewma_vol) else np.nan
-                    if _signal_ok(cfg, iv, ewma_today):
+                    signal_today = signal_vol.iloc[i] if i < len(signal_vol) else np.nan
+                    if _signal_ok(cfg, iv, signal_today):
                         # Entry: sell at bid
                         premium = (call_row["bid"] + put_row["bid"]) * CONTRACT_MULTIPLIER
                         # Establish initial hedge if applicable
